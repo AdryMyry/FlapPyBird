@@ -5,6 +5,15 @@ import sys
 import pygame
 from pygame.locals import *
 
+import serial
+import re
+import RPi.GPIO as GPIO
+
+# GPIO and Serial setup for reading values from Arduino
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(18, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(23, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+ser = serial.Serial('/dev/ttyACM0', 9600)
 
 FPS = 30
 SCREENWIDTH  = 288
@@ -190,6 +199,12 @@ def showWelcomeAnimation():
 
 
 def mainGame(movementInfo):
+
+    global PIPEGAPSIZE 
+    PIPEGAPSIZE = 100
+    # flush input data to sync data received from Arduino
+    ser.flushInput()
+    
     score = playerIndex = loopIter = 0
     playerIndexGen = movementInfo['playerIndexGen']
     playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
@@ -225,9 +240,21 @@ def mainGame(movementInfo):
     playerRotThr  =  20   # rotation threshold
     playerFlapAcc =  -9   # players speed on flapping
     playerFlapped = False # True when player flaps
-
+    
 
     while True:
+
+        # read input buttons to increase or reduce pipe gap size (difficult)
+        upButton = GPIO.input(18)
+        downButton = GPIO.input(23)
+        
+        if (upButton == True):
+            #print "Button pressed"
+            PIPEGAPSIZE -= 2
+
+        if (downButton == True):
+            PIPEGAPSIZE += 2
+
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
@@ -267,9 +294,9 @@ def mainGame(movementInfo):
         loopIter = (loopIter + 1) % 30
         basex = -((-basex + 100) % baseShift)
 
-        # rotate the player
-        if playerRot > -90:
-            playerRot -= playerVelRot
+        # rotate the player (WE DO NOT NEED TO ROTATE THE PLAYER)
+        #if playerRot > -90:
+        #    playerRot -= playerVelRot
 
         # player's movement
         if playerVelY < playerMaxVelY and not playerFlapped:
@@ -281,8 +308,20 @@ def mainGame(movementInfo):
             playerRot = 45
 
         playerHeight = IMAGES['player'][playerIndex].get_height()
-        playery += min(playerVelY, BASEY - playery - playerHeight)
+        
+        # change playery according to values getted from sensor connected to Arduino
+        value = ser.readline() 
+        #print value
 
+        # ignore some wrong values 
+        if not re.match("\d+", value):
+            value = SCREENHEIGHT*0.79
+        else:
+            value = int(value)*SCREENHEIGHT/400        
+
+        # update value smoothly
+        playery = (3*playery + value)/4
+        
         # move pipes to left
         for uPipe, lPipe in zip(upperPipes, lowerPipes):
             uPipe['x'] += pipeVelX
